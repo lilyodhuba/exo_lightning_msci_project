@@ -1,5 +1,7 @@
 # Project-specific ignores
 src/aglyamov_2020_model
+*.png
+*.txt
 
 # pixi environments
 .pixi
