@@ -58,6 +58,7 @@ class SimulationParameters:
     n_bins: int = 31
     min_radius: float = 1e-5
     max_radius: float = 0.46340950011842
+    flash_rate_step: int = 10
 
 
 def saturation_vapour_pressure(temp: float) -> float:
@@ -876,13 +877,6 @@ def kayer(
                     n0s, slopes, upbs = stepgrow(
                         n0s, slopes, binbounds, upbs, const.rho_water, Eij, vrel, delt
                     )
-                    for qq in range(sim_params.n_bins):
-                        if not (n0s[qq] > 0 or n0s[qq] < 0):
-                            # print("aa", n0s[qq])
-                            n0s[qq] = 0.0
-                        if not (slopes[qq] > 0 or slopes[qq] < 0):
-                            # print("bb", slopes[qq])
-                            slopes[qq] = 0.0
             else:
                 nar = (
                     (fcondens / (1.0 - fcondens))
@@ -902,11 +896,6 @@ def kayer(
                     n0s, slopes, upbs = stepgrow(
                         n0s, slopes, binbounds, upbs, const.rho_water, Eij, vrel, delt
                     )
-                    for qq in range(sim_params.n_bins):
-                        if not (n0s[qq] > 0 or n0s[qq] < 0):
-                            n0s[qq] = 0.0
-                        if not (slopes[qq] > 0 or slopes[qq] < 0):
-                            slopes[qq] = 0.0
 
             binsed = max(
                 int(np.floor(np.log(sizecrit / 0.00001) / np.log(np.sqrt(2.0)))), 0
@@ -1067,12 +1056,22 @@ def kayer(
                 )
                 precipC[fg] = abs(3.0 * pCN / pCD)
 
-        for k in range(i, stepmax):
-            aNp = NPrecipitations[k]
-            aMp = MPrecipitations[k]
-            for f in range(sim_params.n_bins):
-                precipN[f] = precipN[f] + aNp[f] * Velocities[k] * precipC[f]
-                precipM[f] = precipM[f] + aMp[f] * Velocities[k] * precipC[f]
+        precipN = precipN + np.sum(
+            (
+                NPrecipitations[i:stepmax]
+                * np.array(Velocities[i:stepmax])[:, None]
+                * precipC
+            ),
+            axis=0,
+        )
+        precipM = precipM + np.sum(
+            (
+                MPrecipitations[i:stepmax]
+                * np.array(Velocities[i:stepmax])[:, None]
+                * precipC
+            ),
+            axis=0,
+        )
 
         Ns = Ns + precipN
         Ms = Ms + precipM
