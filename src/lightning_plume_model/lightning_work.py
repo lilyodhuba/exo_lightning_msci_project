@@ -628,43 +628,50 @@ def dEdt(
     velocities: np.ndarray,
     charges: np.ndarray,
     Efield: float,
-    mfptime: float = None,
     ioncharges: List[float] = [],
     ionnumbers: List[float] = [],
     ionvelocities: List[float] = [],
     ionmasses: List[float] = [],
     const: PhysicalConstants = CONST,
 ) -> float:
-    """Calculate electric field rate - COPIED FROM ORIGINAL."""
-    if mfptime is None:
-        mfptime = const.mfptime
+    """Calculate electric field rate using vectorized operations."""
+    # Vectorized conditions for rpl calculation
+    cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
+    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
 
-    r0s = np.zeros(len(n0s))
-    ns = np.zeros(len(n0s))
+    # Vectorized rpl calculation
+    rpl = np.where(
+        cond1,
+        binbounds[:-1],
+        np.where(
+            cond2, binbounds[1:], 0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes
+        ),
+    )
 
-    for s in range(len(n0s)):
-        r0s[s] = (binbounds[s + 1] + binbounds[s]) / 2.0
-        if n0s[s] + 0.5 * (binbounds[s] - binbounds[s + 1]) * slopes[s] <= 0:
-            rpl = binbounds[s]
-        elif n0s[s] + 0.5 * (binbounds[s + 1] - binbounds[s]) * slopes[s] >= 0:
-            rpl = binbounds[s + 1]
-        else:
-            rpl = 0.5 * binbounds[s] + 0.5 * binbounds[s + 1] - n0s[s] / slopes[s]
-        rmi = binbounds[s]
-        ns[s] = (rpl - rmi) * (n0s[s] - 0.5 * (binbounds[s + 1] + rmi) * slopes[s]) + (
-            0.5 * (rpl**2 - rmi**2)
-        ) * slopes[s]
+    # Get starting bounds
+    rmi = binbounds[:-1]
 
-    Jc = 0.0
-    Jd = 0.0
-    for g in range(len(n0s)):
-        Jcg = -ns[g] * velocities[g] * charges[g]
-        Jc = Jc + Jcg
-    for k in range(len(ionnumbers)):
-        Jdk = (Efield * ionnumbers[k] * mfptime * (const.e_charge) ** 2) / ionmasses[k]
-        Jd = Jd + Jdk
+    # Vectorized ns calculation
+    ns = (rpl - rmi) * (n0s - 0.5 * (binbounds[1:] + rmi) * slopes) + (
+        0.5 * (rpl**2 - rmi**2)
+    ) * slopes
 
-    return -(Jc + Jd) / (const.eps0)
+    # Vectorized current calculation
+    Jc = -np.sum(ns * velocities * charges)
+
+    # Vectorized ion current if ions present
+    if ionmasses:
+        Jd = np.sum(
+            Efield
+            * np.array(ionnumbers)
+            * const.mfptime
+            * (const.e_charge) ** 2
+            / np.array(ionmasses)
+        )
+    else:
+        Jd = 0.0
+
+    return -(Jc + Jd) / const.eps0
 
 
 def kayer(
