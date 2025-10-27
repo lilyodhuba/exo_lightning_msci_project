@@ -58,7 +58,7 @@ class SimulationParameters:
     n_bins: int = 31
     min_radius: float = 1e-5
     max_radius: float = 0.46340950011842
-    flash_rate_step: int = 10
+    flash_rate_sampling: int = 10
 
 
 def saturation_vapour_pressure(temp: float) -> float:
@@ -550,13 +550,13 @@ def dQdt(
     binbounds: np.ndarray,
     upperbound: np.ndarray,
     velocities: np.ndarray,
+    ioncharges: np.ndarray = None,
+    ionnumbers: np.ndarray = None,
+    ionvelocities: np.ndarray = None,
     Qcoefff: float = 1.0,
-    ioncharges: List[float] = [],
-    ionnumbers: List[float] = [],
-    ionvelocities: List[float] = [],
     radju: float = 1,
 ) -> np.ndarray:
-    """Calculate charging rate using vectorized operations."""
+    """Calculate charging rate."""
     # Calculate r0s array
     r0s = (binbounds[1:] + binbounds[:-1]) / 2.0
 
@@ -577,10 +577,6 @@ def dQdt(
     ns = (rpl - rmi) * (n0s - 0.5 * (binbounds[1:] + rmi) * slopes) + 0.5 * (
         rpl**2 - rmi**2
     ) * slopes
-
-    # Create charge transfer matrix
-    n_bins = len(n0s)
-    dQidt = np.zeros(n_bins)
 
     # Calculate all pairwise radius and velocity differences at once
     rG = radju * np.minimum.outer(r0s, r0s)
@@ -607,13 +603,7 @@ def dQdt(
     # Add ion contributions if any
     if ioncharges:
         ion_contributions = np.sum(
-            [
-                charge * number * velocity * (np.pi * r0s**2)
-                for charge, number, velocity in zip(
-                    ioncharges, ionnumbers, ionvelocities
-                )
-            ],
-            axis=0,
+            ioncharges * ionnumbers * ionvelocities * np.pi * r0s**2, axis=0
         )
         dQidt += ion_contributions
 
@@ -627,14 +617,14 @@ def dEdt(
     upperbound: np.ndarray,
     velocities: np.ndarray,
     charges: np.ndarray,
-    Efield: float,
-    ioncharges: List[float] = [],
-    ionnumbers: List[float] = [],
-    ionvelocities: List[float] = [],
-    ionmasses: List[float] = [],
+    ioncharges: np.ndarray = None,
+    ionnumbers: np.ndarray = None,
+    ionvelocities: np.ndarray = None,
+    ionmasses: np.ndarray = None,
+    Efield: float = 0.0,
     const: PhysicalConstants = CONST,
 ) -> float:
-    """Calculate electric field rate using vectorized operations."""
+    """Calculate electric field rate."""
     # Vectorized conditions for rpl calculation
     cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
     cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
@@ -659,14 +649,10 @@ def dEdt(
     # Vectorized current calculation
     Jc = -np.sum(ns * velocities * charges)
 
-    # Vectorized ion current if ions present
+    # Ion current if ions present
     if ionmasses:
         Jd = np.sum(
-            Efield
-            * np.array(ionnumbers)
-            * const.mfptime
-            * (const.e_charge) ** 2
-            / np.array(ionmasses)
+            Efield * ionnumbers * const.mfptime * (const.e_charge) ** 2 / ionmasses
         )
     else:
         Jd = 0.0
@@ -1019,10 +1005,10 @@ def kayer(
     MPrecipitations[-1] = MPrecipitations[-1] + precipM
 
     # Calculate flash rates
-    J1ss = np.zeros(stepmax // sim_params.flash_rate_step)
-    tcrits = np.zeros(stepmax // sim_params.flash_rate_step)
+    J1ss = np.zeros(stepmax // sim_params.flash_rate_sampling)
+    tcrits = np.zeros(stepmax // sim_params.flash_rate_sampling)
 
-    for ib in range(stepmax // sim_params.flash_rate_step):
+    for ib in range(stepmax // sim_params.flash_rate_sampling):
         if (ib / 100.0) == np.ceil(ib / 100.0):
             print(ib)
 
@@ -1171,7 +1157,7 @@ def kayer(
             n0snew, slopesnew, binbounds, upboss, velpart, Qcoefff=Qcoeff, radju=radju
         )
         qara = dEdt(
-            n0snew, slopesnew, binbounds, upboss, velpart, kara, 0.0, const=const
+            n0snew, slopesnew, binbounds, upboss, velpart, kara, Efield=0.0, const=const
         )
 
         J1ss[ib] = (const.eps0) * qara
@@ -1180,7 +1166,13 @@ def kayer(
         if qara != 0:
             tcrits[ib] = np.sqrt(2.0 * Emax / abs(qara))
 
-    PPV = 5.0 * np.array(Pressures)[:: sim_params.flash_rate_step] * J1ss * tcrits / 2.0
+    PPV = (
+        5.0
+        * np.array(Pressures)[:: sim_params.flash_rate_sampling]
+        * J1ss
+        * tcrits
+        / 2.0
+    )
     verticalrise = (
         100.0
         * np.array(Tempsrise)
@@ -1188,10 +1180,13 @@ def kayer(
         / (const.g * np.array(Pressures) * const.mu)
     )
     flash_rate = abs(
-        (10**6) * verticalrise[:: sim_params.flash_rate_step] * PPV[:] / const.Eflash
+        (10**6)
+        * verticalrise[:: sim_params.flash_rate_sampling]
+        * PPV[:]
+        / const.Eflash
     )
 
-    Plim = np.array(Pressures)[:: sim_params.flash_rate_step]
+    Plim = np.array(Pressures)[:: sim_params.flash_rate_sampling]
 
     return (
         Pressures,
@@ -1319,6 +1314,8 @@ def main():
             temp_supercool=40.0,
             water_collision_efficiency=0.5,
             ice_collision_efficiency=0.0,
+            pressure_step=10,
+            flash_rate_sampling=10,
         )
         param_desc = (
             f"base_temp_{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
