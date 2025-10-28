@@ -979,63 +979,82 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
                         delt,
                     )
 
+            # Calculate binsed using np.floor and max
             binsed = max(
                 int(np.floor(np.log(sizecrit / 0.00001) / np.log(np.sqrt(2.0)))), 0
             )
 
-            for ssa in range(sim_params.n_bins):
-                if (
-                    n0s[ssa] + 0.5 * (binbounds[ssa] - binbounds[ssa + 1]) * slopes[ssa]
-                    <= 0
-                ):
-                    upbs[ssa] = binbounds[ssa]
-                elif (
-                    n0s[ssa] + 0.5 * (binbounds[ssa + 1] - binbounds[ssa]) * slopes[ssa]
-                    >= 0
-                ):
-                    upbs[ssa] = binbounds[ssa + 1]
-                else:
-                    upbs[ssa] = (
-                        0.5 * binbounds[ssa]
-                        + 0.5 * binbounds[ssa + 1]
-                        - n0s[ssa] / slopes[ssa]
-                    )
+            # Calculate conditions for all bins at once
+            cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
+            cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
 
+            # Use np.where to vectorize the conditions
+            upbs = np.where(
+                cond1,
+                binbounds[:-1],  # if cond1 is True
+                np.where(
+                    cond2,
+                    binbounds[1:],  # if cond2 is True
+                    # otherwise calculate the intermediate value
+                    0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes,
+                ),
+            )
+            # Initialize variables
             mpvout = 0.0
             mpvin = 0.0
             precipN = np.zeros(sim_params.n_bins)
             precipM = np.zeros(sim_params.n_bins)
 
-            for ffg in range(binsed, sim_params.n_bins, 1):
-                rpl = upbs[ffg]
-                rmi = binbounds[ffg]
-                R4 = 0.25 * (rpl**4 - rmi**4)
-                R5 = 0.20 * (rpl**5 - rmi**5)
-                RR = (
-                    R4 * (n0s[ffg] - 0.5 * (binbounds[ffg + 1] + rmi) * slopes[ffg])
-                    + R5 * slopes[ffg]
-                )
-                mpvout = mpvout + RR
-                precipN[ffg] = (rpl - rmi) * (
-                    n0s[ffg] - 0.5 * (binbounds[ffg + 1] + rmi) * slopes[ffg]
-                ) + (0.5 * (rpl**2 - rmi**2)) * slopes[ffg]
-                precipM[ffg] = RR
-                n0s[ffg] = 0.0
-                slopes[ffg] = 0.0
-                if ffg > 0:
-                    upbs[ffg] = binbounds[ffg]
+            # Vectorized calculations for bins >= binsed
+            ffg_range = np.arange(binsed, sim_params.n_bins)
+            rpl = upbs[ffg_range]
+            rmi = binbounds[ffg_range]
+            R4 = 0.25 * (rpl**4 - rmi**4)
+            R5 = 0.20 * (rpl**5 - rmi**5)
 
-            for ffgh in range(0, binsed, 1):
-                rpl = upbs[ffgh]
-                rmi = binbounds[ffgh]
+            RR = (
+                R4
+                * (
+                    n0s[ffg_range]
+                    - 0.5 * (binbounds[ffg_range + 1] + rmi) * slopes[ffg_range]
+                )
+                + R5 * slopes[ffg_range]
+            )
+
+            mpvout = np.sum(RR)
+
+            precipN[ffg_range] = (rpl - rmi) * (
+                n0s[ffg_range]
+                - 0.5 * (binbounds[ffg_range + 1] + rmi) * slopes[ffg_range]
+            ) + (0.5 * (rpl**2 - rmi**2)) * slopes[ffg_range]
+
+            precipM[ffg_range] = RR
+
+            # Zero out processed bins
+            n0s[ffg_range] = 0.0
+            slopes[ffg_range] = 0.0
+            upbs[ffg_range[ffg_range > 0]] = binbounds[ffg_range[ffg_range > 0]]
+
+            # Vectorized calculations for bins < binsed
+            ffgh_range = np.arange(binsed)
+            if len(ffgh_range) > 0:
+                rpl = upbs[ffgh_range]
+                rmi = binbounds[ffgh_range]
                 R4 = 0.25 * (rpl**4 - rmi**4)
                 R5 = 0.20 * (rpl**5 - rmi**5)
+
                 RRa = (
-                    R4 * (n0s[ffgh] - 0.5 * (binbounds[ffgh + 1] + rmi) * slopes[ffgh])
-                    + R5 * slopes[ffgh]
+                    R4
+                    * (
+                        n0s[ffgh_range]
+                        - 0.5 * (binbounds[ffgh_range + 1] + rmi) * slopes[ffgh_range]
+                    )
+                    + R5 * slopes[ffgh_range]
                 )
-                mpvin = mpvin + RRa
 
+                mpvin = np.sum(RRa)
+
+            # Calculate final condensate
             condensate_new = condensate_new_init * mpvin / (mpvout + mpvin)
 
         P = Pnew
