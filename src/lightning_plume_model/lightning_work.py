@@ -358,7 +358,89 @@ def stepgrow(
     vrel: np.ndarray,
     delt: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Particle growth through collisions."""
+    r"""
+    Simulate one time step of particle growth through collisional coalescence.
+
+    This function advances the particle size distribution by one time step, accounting
+    for collisions between particles in different size bins. Particles collide based on
+    their relative velocities and collision efficiencies, causing smaller particles to
+    be captured by larger ones and grow to larger size bins.
+
+    The collision rate between particles in bins i and j is:
+
+    .. math::
+        \lambda_{ij} = \min\left(E_{ij} \pi (r_i^2 + r_j^2) v_{rel,ij} N_j \Delta t, 1\right)
+
+    where :math:`E_{ij}` is the collision efficiency, :math:`r_i` and :math:`r_j` are
+    characteristic radii, :math:`v_{rel,ij}` is the relative velocity, :math:`N_j` is
+    the number of particles in bin j, and :math:`\Delta t` is the time step.
+
+    The number and mass changes for bin j (smaller particle being captured):
+
+    .. math::
+        \Delta N_j = -\lambda_{ij} N_i
+
+    .. math::
+        \Delta M_j = -\lambda_{ij} N_i m_j
+
+    The mass change for bin i (larger particle growing):
+
+    .. math::
+        \Delta M_i = +\lambda_{ij} N_i m_j
+
+    After collisions, particles may move to adjacent bins if their mass increases beyond
+    the bin boundaries. The new distribution is represented using a piecewise linear form:
+
+    .. math::
+        n(r) = n_0 + s(r - r_0)
+
+    where :math:`n_0` is the density at bin center :math:`r_0` and :math:`s` is the slope.
+
+    Parameters
+    ----------
+    sim_params : SimulationParameters
+        Simulation configuration containing n_bins and other parameters
+    n0s : np.ndarray
+        Number density at bin centers [1/m^4]
+    slopes : np.ndarray
+        Slopes of linear distribution in each bin [1/m^5]
+    binbounds : np.ndarray
+        Boundaries of particle size bins [m], length n_bins + 1
+    upbooms : np.ndarray
+        Upper bounds of particle distribution in each bin [m]
+    rho : float
+        Particle density (water or ice) [kg/m^3]
+    Eij : np.ndarray
+        Collision efficiency matrix [dimensionless], shape (n_bins, n_bins)
+    vrel : np.ndarray
+        Relative velocity matrix [m/s], shape (n_bins, n_bins)
+    delt : float
+        Time step duration [s]
+
+    Returns
+    -------
+    n0snew : np.ndarray
+        Updated number density at bin centers [1/m^4]
+    slopesnew : np.ndarray
+        Updated slopes of linear distribution [1/m^5]
+    upbos : np.ndarray
+        Updated upper bounds of distribution [m]
+
+    Notes
+    -----
+    The function uses a semi-Lagrangian approach where the particle size distribution
+    is represented as a piecewise linear function within each bin. This allows for
+    sub-bin resolution of the distribution while maintaining computational efficiency.
+
+    The collision algorithm considers all pairs (i, j) where i >= j, processing only
+    the lower triangle of the collision matrix to avoid double counting. When particles
+    in bin i collect particles from bin j, the resulting mass may exceed the upper
+    boundary of bin i, causing a transfer to bin i+1.
+
+    The piecewise linear representation is reconstructed after collisions by solving
+    for n0 and slope values that match the total number and mass in each bin while
+    maintaining physical constraints (non-negative number densities).
+    """
     r0s = np.zeros(sim_params.n_bins)
     Ns = np.zeros(sim_params.n_bins)
     Ms = np.zeros(sim_params.n_bins)
@@ -607,7 +689,83 @@ def dQdt(
     Qcoefff: float = 1.0,
     radju: float = 1,
 ) -> np.ndarray:
-    """Calculate charging rate."""
+    r"""
+    Calculate the rate of charge transfer between particle bins.
+
+    This function computes the charging rate :math:`dQ/dt` for each particle size bin
+    due to collisions with other particles and optionally with ions. The charge transfer
+    depends on particle sizes, relative velocities, and collision geometries.
+
+    The charge transfer rate for bin i is given by:
+
+    .. math::
+        \frac{dQ_i}{dt} = Q_{coeff} \sum_{j \neq i} \Delta Q_{ij} n_j \pi (r_i^2 + r_j^2) r_{adj}^2
+
+    where :math:`\Delta Q_{ij}` is the charge exchanged per collision between bins i and j:
+
+    .. math::
+        \Delta Q_{ij} = \left(\frac{|v_i - v_j|}{3}\right)^{2.5} G_r(r_G) \times 10^{-15}
+
+    The geometric factor :math:`r_G` is:
+
+    .. math::
+        r_G = r_{adj} \min(r_i, r_j)
+
+    and :math:`G_r` is an empirical function:
+
+    .. math::
+        G_r(r_G) = \begin{cases}
+        0.0271 (10^6 r_G)^{2.7} & \text{if } r_G \leq 0.000111 \text{ m} \\
+        0.0988 (10^6 r_G)^{0.98} & \text{if } r_G > 0.000111 \text{ m}
+        \end{cases}
+
+    If ions are present, an additional contribution is added:
+
+    .. math::
+        \frac{dQ_i}{dt}|_{ions} = \sum_{k} q_k N_k v_k \pi r_i^2
+
+    where :math:`q_k`, :math:`N_k`, and :math:`v_k` are the charge, number density,
+    and velocity of ion species k.
+
+    Parameters
+    ----------
+    n0s : np.ndarray
+        Number density at bin centers [1/m^4]
+    slopes : np.ndarray
+        Slopes of linear distribution in each bin [1/m^5]
+    binbounds : np.ndarray
+        Boundaries of particle size bins [m]
+    upperbound : np.ndarray
+        Upper bounds of particle distribution in each bin [m]
+    velocities : np.ndarray
+        Drift velocities of particles in each bin [m/s]
+    ioncharges : np.ndarray, optional
+        Charges of ion species [C]
+    ionnumbers : np.ndarray, optional
+        Number densities of ion species [1/m^3]
+    ionvelocities : np.ndarray, optional
+        Drift velocities of ion species [m/s]
+    Qcoefff : float, optional
+        Global charge transfer coefficient (default 1.0) [dimensionless]
+    radju : float, optional
+        Radius adjustment factor for ice particles (default 1.0) [dimensionless]
+
+    Returns
+    -------
+    np.ndarray
+        Rate of charge change for each bin [C/s]
+
+    Notes
+    -----
+    The charge transfer mechanism is based on collisional charging where particles
+    of different sizes moving at different velocities exchange charge. The empirical
+    functions for :math:`G_r` and the velocity dependence are derived from
+    laboratory measurements of particle-particle collisions.
+
+    The function uses a piecewise linear representation of the particle size distribution
+    within each bin, with n0s representing the density at the bin center and slopes
+    giving the linear variation with radius.
+    """
     # Calculate r0s array
     r0s = (binbounds[1:] + binbounds[:-1]) / 2.0
 
@@ -662,20 +820,78 @@ def dQdt(
 
 
 def dEdt(
-    n0s: np.ndarray,
-    slopes: np.ndarray,
-    binbounds: np.ndarray,
-    upperbound: np.ndarray,
-    velocities: np.ndarray,
-    charges: np.ndarray,
-    ioncharges: np.ndarray = None,
-    ionnumbers: np.ndarray = None,
-    ionvelocities: np.ndarray = None,
-    ionmasses: np.ndarray = None,
-    Efield: float = 0.0,
-    const: PhysicalConstants = CONST,
-) -> float:
-    """Calculate electric field rate."""
+    n0s,
+    slopes,
+    binbounds,
+    upperbound,
+    velocities,
+    charges,
+    ioncharges=None,
+    ionnumbers=None,
+    ionvelocities=None,
+    ionmasses=None,
+    Efield=0.0,
+    const=CONST,
+):
+    """Calculate the rate of change of the electric field in a plasma.
+
+    This function computes dE/dt based on the continuity equation and current densities
+    from both charged particles and ions (if present).
+
+    Parameters
+    ----------
+    n0s : np.ndarray
+        Initial number densities at bin centers.
+    slopes : np.ndarray
+        Slopes of the linear approximation in each bin.
+    binbounds : np.ndarray
+        Boundaries of the bins for particle size distribution.
+    upperbound : np.ndarray
+        Upper boundary values for the distribution.
+    velocities : np.ndarray
+        Drift velocities of charged particles.
+    charges : np.ndarray
+        Charge values for particles.
+    ioncharges : np.ndarray, optional
+        Charges of ion species.
+    ionnumbers : np.ndarray, optional
+        Number densities of ion species.
+    ionvelocities : np.ndarray, optional
+        Drift velocities of ion species.
+    ionmasses : np.ndarray, optional
+        Masses of ion species.
+    Efield : float, optional
+        External electric field strength, defaults to 0.0.
+    const : PhysicalConstants, optional
+        Physical constants container.
+
+    Returns
+    -------
+    float
+        Rate of change of electric field (dE/dt).
+
+    Notes
+    -----
+    The electric field rate is calculated using:
+
+    :math:`dE/dt = -(J_c + J_d)/epsilon_0`
+
+    where:
+    - :math:`J_c` is the conduction current density from charged particles
+    - :math:`J_d` is the displacement current density from ions
+    - :math:`epsilon_0` is the vacuum permittivity
+
+    The conduction current is computed as:
+    :math:`J_c = -sum_i n_i v_i q_i`
+
+    For ions, the displacement current is:
+    :math:`J_d = sum_i E cdot n_i tau e^2/m_i`
+
+    where:
+    - :math:`tau` is the mean free path time
+    - :math:`e` is the elementary charge
+    - :math:`m_i` is the ion mass
+    """
     # Vectorized conditions for rpl calculation
     cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
     cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
