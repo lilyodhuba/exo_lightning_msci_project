@@ -62,7 +62,33 @@ class SimulationParameters:
 
 
 def saturation_vapour_pressure(temp: float) -> float:
-    """Saturation vapour pressure of water (Lowe 1977)."""
+    """
+    Calculate saturation vapour pressure of water using Lowe 1977 polynomial fit.
+
+    The polynomial is of the form:
+    :math:`e_s = (a_0 + T(a_1 + T(a_2 + T(a_3 + T(a_4 + T(a_5 + Ta_6))))))`
+
+    where :math:`e_s` is saturation vapour pressure in Pa and T is temperature in K.
+
+    Parameters
+    ----------
+    temp : float
+        Temperature in Kelvin
+
+    Returns
+    -------
+    float
+        Saturation vapour pressure in Pascal (Pa)
+
+    Notes
+    -----
+    Based on Lowe, P.R., 1977: An approximating polynomial for the computation
+    of saturation vapor pressure. J. Appl. Meteor., 16, 100-103.
+
+    The polynomial coefficients are:
+
+    The result is converted from mb to Pa (×100) and cannot be negative.
+    """
     a0 = 6984.505294
     a1 = -188.9039310
     a2 = 2.133357675
