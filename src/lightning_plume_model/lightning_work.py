@@ -53,6 +53,7 @@ class SimulationParameters:
     min_radius: float = 1e-5
     max_radius: float = 0.46340950011842
     flash_rate_sampling: int = 10
+    dt = 0.01
 
 
 def saturation_vapour_pressure(temp: float) -> float:
@@ -395,7 +396,6 @@ def stepgrow(
     rho: float,
     Eij: np.ndarray,
     vrel: np.ndarray,
-    delt: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""
     Simulate one time step of particle growth through collisional coalescence.
@@ -453,8 +453,6 @@ def stepgrow(
         Collision efficiency matrix [dimensionless], shape (n_bins, n_bins)
     vrel : np.ndarray
         Relative velocity matrix [m/s], shape (n_bins, n_bins)
-    delt : float
-        Time step duration [s]
 
     Returns
     -------
@@ -560,7 +558,7 @@ def stepgrow(
         * (r0s[i_idx] ** 2 + r0s[j_idx] ** 2)
         * vrel[i_idx, j_idx]
         * Ns[j_idx]
-        * delt,
+        * sim_params.dt,
         1.0,
     )
 
@@ -706,7 +704,7 @@ def stepgrow(
     return n0snew, slopesnew, upbos
 
 
-def dQdt(
+def charge_transfer(
     n0s: np.ndarray,
     slopes: np.ndarray,
     binbounds: np.ndarray,
@@ -839,7 +837,7 @@ def dQdt(
     return dQidt * Qcoefff
 
 
-def dEdt(
+def electric_field_change(
     n0s,
     slopes,
     binbounds,
@@ -853,7 +851,8 @@ def dEdt(
     Efield=0.0,
     const=CONST,
 ):
-    """Calculate the rate of change of the electric field in a plasma.
+    """
+    Calculate the rate of change of the electric field.
 
     This function computes dE/dt based on the continuity equation and current densities
     from both charged particles and ions (if present).
@@ -1088,7 +1087,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
     vrQQ = np.sqrt(
         (8.0 / (3.0 * const.Cdrag)) * const.rho_water * const.g * const.R / const.mu
     )
-    delt = 0.01
+
     # Initialize upbsin more efficiently
     upbsin = np.full(sim_params.n_bins, binbounds[0])
     upbsin[0] = binbounds[1]
@@ -1253,7 +1252,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
             sim_params.pressure_step * Trisenew * const.R / (const.g * Pnew * const.mu)
         )
         timefly = verticalrise / wnew
-        stepsfly = int(np.ceil(timefly / delt))
+        stepsfly = int(np.ceil(timefly / sim_params.dt))
 
         # Initialize condensate
         condensate_new_init = condensate + fcondens
@@ -1303,7 +1302,6 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
                         const.rho_water,
                         Eij,
                         vrel,
-                        delt,
                     )
 
             # Calculate critical size and update arrays
@@ -1429,13 +1427,13 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
     tcrits = np.zeros(samples)
 
     # Pre-calculate array indices
-    sample_indices = np.arange(samples) * sim_params.flash_rate_sampling
+    sample_indices = np.arange(samples, dtype=int) * sim_params.flash_rate_sampling
 
     Qcoeff = 1.0
     radju = 1.0
 
     for ib, i in enumerate(sample_indices):
-        if (ib % 100.0) == 0.0:
+        if (ib % 100) == 0:
             print(ib)
 
         n0s = n0s_per_level[i, :]
@@ -1566,10 +1564,10 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
                         )
 
         # Calculate charge and electric field rates
-        kara = dQdt(
+        kara = charge_transfer(
             n0snew, slopesnew, binbounds, upboss, velpart, Qcoefff=Qcoeff, radju=radju
         )
-        qara = dEdt(
+        qara = electric_field_change(
             n0snew, slopesnew, binbounds, upboss, velpart, kara, Efield=0.0, const=const
         )
 
@@ -1585,15 +1583,12 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         PPV = 5.0 * Pressures[:: sim_params.flash_rate_sampling] * J1ss * tcrits / 2.0
 
         # Calculate verticalrise array in one operation
-        verticalrise = 100.0 * Tempsrise * const.R / (const.g * Pressures * const.mu)
+        verticalrise = (100.0 * Tempsrise * const.R / (const.g * Pressures * const.mu))[
+            :: sim_params.flash_rate_sampling
+        ]
 
         # Calculate flash rate in one operation
-        flash_rate = np.abs(
-            (10**6)
-            * verticalrise[:: sim_params.flash_rate_sampling]
-            * PPV
-            / const.Eflash
-        )
+        flash_rate = np.abs((10**6) * verticalrise * PPV / const.Eflash)
 
     return {
         "pressure": Pressures,
