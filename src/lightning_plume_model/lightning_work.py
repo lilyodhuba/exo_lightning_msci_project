@@ -9,7 +9,7 @@ from typing import Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-PROJECT_NAME = "convective_plume_earth"
+PROJECT_NAME = "convect_plume_earth"
 
 
 @dataclass(frozen=True)
