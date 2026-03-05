@@ -61,18 +61,26 @@ def saturation_vapour_pressure(temp: float) -> float:
     return max(mb * 100.0, 0.0)
 
 
-def temp_strat(pressure: float) -> float:
-    """International Standard Atmosphere stratospheric temperature."""
-    if pressure > 5474.9:
-        return 216.6
-    elif pressure > 868.02:
-        return 216.6 + 12.0 * np.log(pressure / 5474.9) / np.log(868.02 / 5474.9)
-    elif pressure > 110.91:
-        return 228.6 + 42.0 * np.log(pressure / 868.02) / np.log(110.91 / 868.02)
-    elif pressure > 66.939:
-        return 270.6
-    else:
-        return 270.6 - 56.0 * np.log(pressure / 66.939) / np.log(3.9564 / 66.939)
+# def temp_strat(pressure: float) -> float:
+#     """International Standard Atmosphere stratospheric temperature."""
+#     if pressure > 5474.9:
+#         return 216.6
+#     elif pressure > 868.02:
+#         return 216.6 + 12.0 * np.log(pressure / 5474.9) / np.log(868.02 / 5474.9)
+#     elif pressure > 110.91:
+#         return 228.6 + 42.0 * np.log(pressure / 868.02) / np.log(110.91 / 868.02)
+#     elif pressure > 66.939:
+#         return 270.6
+#     else:
+#         return 270.6 - 56.0 * np.log(pressure / 66.939) / np.log(3.9564 / 66.939)
+
+def temp_strat(sigma_p):
+    if sigma_p > -0.9: #Troposphere
+        return 120.7183574 * sigma_p + 285.47827322
+    elif sigma_p > -2.25: # Stratosphere
+        return 2.53197122e+01 * sigma_p**9 + 5.49418784e+02 * sigma_p**8 + 5.14741161e+03 * sigma_p**7 + 2.72999043e+04 * sigma_p**6 + 9.02416549e+04 * sigma_p**5 + 1.92643072e+05 * sigma_p**4 + 2.65380745e+05 * sigma_p**3 + 2.27337528e+05 * sigma_p**2 + 1.09834926e+05 * sigma_p + 2.29695343e+04
+    else: # Mesosphere
+        return 3.82949073e-03 * sigma_p**9 + 2.43852764e-03 * sigma_p**8 - 5.08313646e-02 * sigma_p**7 + 2.03902500e-01 * sigma_p**6 - 1.93617933e-01 * sigma_p**5 - 2.60371250e+00 * sigma_p**4 + 1.50749300e+01 * sigma_p**3 - 4.68621587e+00 * sigma_p**2 - 2.79833145e+02 * sigma_p - 2.43661521e+02
 
 
 def dry_adiabat(
@@ -1055,6 +1063,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
         Radii[i] = Rplume
 
         Pnew = P - sim_params.pressure_step
+        sigma = Pnew/ sim_params.start_pressure
 
         # Vectorized thermodynamic calculations
         fJrise = frise / (const.epsilon + frise * (1.0 - const.epsilon))
@@ -1068,7 +1077,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
         # Temperature stratification adjustment
         if (P < 22632) or (Tfallnew < 216.6):
             fadjTf = sim_params.pressure_step / 100.0
-            Tfallnew = (1 - fadjTf) * Tfallnew + fadjTf * temp_strat(Pnew)
+            Tfallnew = (1 - fadjTf) * Tfallnew + fadjTf * temp_strat(sigma)
 
         entrain_param = entrainment(Trise, P, Rplume, const)
 
