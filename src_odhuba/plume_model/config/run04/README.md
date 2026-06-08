@@ -1,0 +1,1 @@
+An example of a custom configuration for the lightning plume model.

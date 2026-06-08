@@ -1,0 +1,47 @@
+exo_lightning_msci_project:
+- MSci Project folder containing the model, simulation output and Jupyter notebooks for data analysis 
+
+-------------------------------------------------------------------------------------------------------------
+
+initial:
+- Preliminary runs of the 1D model from Aglyamov et al. (2021) https://doi.org/10.1029/2020JE006504
+- Iris practice & visualising Earth data within package
+- Loading and analysing some data from Sergeev et al. (2025) https://doi.org/10.5281/zenodo.15190801
+
+m09_air_temperature:
+- Loading and analysing data from Sergeev et al. (2025) https://doi.org/10.5281/zenodo.15190801 (microphysics-based scheme)
+- Loading and analysing data from Sergeev et al. (2022) https://ckan.emac.gsfc.nasa.gov/organization/thai
+
+model_comparison:
+- Loading and analysing my simulation data output from src_original, src_onebar, src_scaled_ISA and src_odhuba
+
+pr92_air_temperature:
+- Loading and analysing data from Sergeev et al. (2025) https://doi.org/10.5281/zenodo.15190801 (cloud-top height scheme)
+
+src_original:
+- 1D plume model
+- Varying surface pressures
+- Constant surface temperature
+- Original stratospheric temperature function (temp_strat in plume_model.py)
+- Simulation data output in "data" and "figures"
+
+src_onebar:
+- 1D plume model
+- Same configurations as in Aglyamov et al. (2021) with improved conciseness and useability thanks to Dr Denis Sergeev
+- Varying surface temperatures
+- Constant surface pressure
+- Simulation data output in "data" and "figures"
+
+src_scaled_ISA:
+- 1D plume model
+- Varying surface pressures
+- Constant surface temperature
+- Dimensionless stratospheric temperature function (temp_strat in plume_model.py)
+- Simulation data output in "data" and "figures"
+
+src_odhuba:
+- 1D plume model
+- Varying surface pressures
+- Constant surface temperature
+- My updated stratospheric temperature function (temp_strat in plume_model.py)
+- Simulation data output in "data" and "figures"
